@@ -3,8 +3,8 @@
 
 #include "citro2d/citro.h"
 
+#include <algorithm>
 #include <numeric>
-
 using namespace love;
 
 Font::Font(Rasterizer* rasterizer, const Texture::Filter& filter) :
@@ -97,23 +97,30 @@ void Font::GetWrap(const std::vector<Font::ColoredString>& strings, float wrapLi
 void Font::Print(Graphics* gfx, const std::vector<ColoredString>& text,
                  const Matrix4& localTransform, const Colorf& color)
 {
-    C2D_Text citroText;
-
-    std::string result = std::accumulate(
-        text.begin(), text.end(), std::string {},
-        [](const std::string& s1, const ColoredString& piece) { return s1 + piece.string; });
-
-    C2D_TextFontParse(&citroText, this->GetFont(), this->buffer, result.c_str());
-    C2D_TextOptimize(&citroText);
-
     Matrix4 t(gfx->GetTransform(), localTransform);
-    C2D_ViewRestore(&t.GetElements());
 
-    u32 renderColorf = C2D_Color32f(color.r, color.g, color.b, color.a);
-    C2D_DrawText(&citroText, C2D_WithColor, 0, 0, Graphics::CURRENT_DEPTH, this->GetScale(),
-                 this->GetScale(), renderColorf);
+    float height = 0;
+    for (auto cs : text)
+    {
+        C2D_Text citroText;
 
-    C2D_TextBufClear(this->buffer);
+        C2D_TextFontParse(&citroText, this->GetFont(), this->buffer, cs.string.c_str());
+        C2D_TextOptimize(&citroText);
+
+        Matrix4 t(gfx->GetTransform(), localTransform);
+        C2D_ViewRestore(&t.GetElements());
+
+        u32 renderColorf = C2D_Color32f(cs.color.r, cs.color.g, cs.color.b, cs.color.a);
+        C2D_DrawText(&citroText, C2D_WithColor, 0, height, Graphics::CURRENT_DEPTH,
+                     this->GetScale(), this->GetScale(), renderColorf);
+
+        float currentHeight;
+        C2D_TextGetDimensions(&citroText, this->GetScale(), this->GetScale(), nullptr,
+                              &currentHeight);
+        height += currentHeight;
+
+        C2D_TextBufClear(this->buffer);
+    }
 }
 
 void Font::Printf(Graphics* gfx, const std::vector<ColoredString>& text, float wrap,
@@ -142,21 +149,28 @@ void Font::Printf(Graphics* gfx, const std::vector<ColoredString>& text, float w
             break;
     }
 
-    std::string result = std::accumulate(
-        text.begin(), text.end(), std::string {},
-        [](const std::string& s1, const ColoredString& piece) { return s1 + piece.string; });
+    float height = 0;
+    for (auto cs : text)
+    {
+        C2D_TextFontParse(&citroText, this->GetFont(), this->buffer, cs.string.c_str());
+        C2D_TextOptimize(&citroText);
 
-    C2D_TextFontParse(&citroText, this->GetFont(), this->buffer, result.c_str());
-    C2D_TextOptimize(&citroText);
+        Matrix4 t(gfx->GetTransform(), localTransform);
+        C2D_ViewRestore(&t.GetElements());
 
-    Matrix4 t(gfx->GetTransform(), localTransform);
-    C2D_ViewRestore(&t.GetElements());
+        u32 renderColorf = C2D_Color32f(cs.color.r, cs.color.g, cs.color.b, cs.color.a);
+        C2D_DrawText(&citroText, C2D_WithColor | alignMode, offset, height, Graphics::CURRENT_DEPTH,
+                     this->GetScale(), this->GetScale(), renderColorf, wrap);
 
-    u32 renderColorf = C2D_Color32f(color.r, color.g, color.b, color.a);
-    C2D_DrawText(&citroText, C2D_WithColor | alignMode, offset, 0, Graphics::CURRENT_DEPTH,
-                 this->GetScale(), this->GetScale(), renderColorf, wrap);
-
-    C2D_TextBufClear(this->buffer);
+        float currentHeight;
+        float currentWidth;
+        auto fontInfo = C2D_FontGetInfo(citroText.font);
+        C2D_TextGetDimensions(&citroText, this->GetScale(), this->GetScale(), &currentWidth, &currentHeight);
+        height += currentHeight;
+        height +=
+            floorf(this->GetScale() * (fontInfo->height) * currentWidth / wrap);
+        C2D_TextBufClear(this->buffer);
+    }
 }
 
 int Font::GetWidth(uint32_t /* prevGlyph */, uint32_t current)
